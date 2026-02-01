@@ -144,7 +144,7 @@ class AuthService {
       );
     }
     final result = await FlutterNaverLogin.logIn();
-    if (result.status != NaverLoginStatus.loggedIn) {
+    if (result.status.name != 'loggedIn') {
       throw FirebaseAuthException(
         code: 'naver-login-failed',
         message: '네이버 로그인에 실패했습니다.',
