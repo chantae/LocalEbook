@@ -136,6 +136,7 @@ class AuthService {
 
   static Future<UserCredential> signInWithNaver() async {
     final provider = OAuthProvider('oidc.naver');
+    provider.setCustomParameters({'lang': 'ko'});
     if (kIsWeb) {
       return _auth.signInWithPopup(provider);
     }
