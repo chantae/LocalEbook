@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="client_id">YOUR_NAVER_CLIENT_ID</string>
+    <string name="client_secret">YOUR_NAVER_CLIENT_SECRET</string>
+    <string name="client_name">LocalEbook</string>
+</resources>
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="client_id">YOUR_NAVER_CLIENT_ID</string>
+    <string name="client_secret">YOUR_NAVER_CLIENT_SECRET</string>
+    <string name="client_name">LocalEbook</string>
+</resources>

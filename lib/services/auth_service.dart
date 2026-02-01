@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_naver_login/flutter_naver_login.dart';
 import 'package:my_ebook/models/user_role.dart';
 
 class AuthService {
@@ -135,12 +137,44 @@ class AuthService {
   }
 
   static Future<UserCredential> signInWithNaver() async {
-    final provider = OAuthProvider('oidc.naver');
-    provider.setCustomParameters({'lang': 'ko'});
     if (kIsWeb) {
-      return _auth.signInWithPopup(provider);
+      throw FirebaseAuthException(
+        code: 'naver-web-unsupported',
+        message: '네이버는 웹에서 직접 로그인을 지원하지 않습니다.',
+      );
     }
-    return _auth.signInWithProvider(provider);
+    final result = await FlutterNaverLogin.logIn();
+    if (result.status != NaverLoginStatus.loggedIn) {
+      throw FirebaseAuthException(
+        code: 'naver-login-failed',
+        message: '네이버 로그인에 실패했습니다.',
+      );
+    }
+    final dynamic tokenValue = result.accessToken;
+    final accessToken = tokenValue is String
+        ? tokenValue
+        : tokenValue?.token as String?;
+    if (accessToken == null || accessToken.isEmpty) {
+      throw FirebaseAuthException(
+        code: 'naver-missing-token',
+        message: '네이버 토큰을 가져오지 못했습니다.',
+      );
+    }
+    final callable =
+        FirebaseFunctions.instance.httpsCallable('verifyNaverToken');
+    final response = await callable.call(<String, dynamic>{
+      'accessToken': accessToken,
+    });
+    final firebaseToken = response.data is Map
+        ? response.data['firebaseToken'] as String?
+        : response.data as String?;
+    if (firebaseToken == null || firebaseToken.isEmpty) {
+      throw FirebaseAuthException(
+        code: 'naver-custom-token-failed',
+        message: 'Firebase 토큰 발급에 실패했습니다.',
+      );
+    }
+    return _auth.signInWithCustomToken(firebaseToken);
   }
 
   static Future<UserCredential> signInWithKakao() async {
