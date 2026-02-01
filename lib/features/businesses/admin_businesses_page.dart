@@ -4,6 +4,7 @@ import 'package:my_ebook/core/debug_log.dart';
 import 'package:my_ebook/core/utils.dart';
 import 'package:my_ebook/features/categories/admin_categories_page.dart';
 import 'package:my_ebook/widgets/admin_fields.dart';
+import 'package:my_ebook/widgets/image_upload_field.dart';
 
 class AdminBusinessesPage extends StatefulWidget {
   const AdminBusinessesPage({super.key});
@@ -43,6 +44,28 @@ class _AdminBusinessesPageState extends State<AdminBusinessesPage> {
         TextEditingController(text: data?['phone'] as String? ?? '');
     final addressController =
         TextEditingController(text: data?['address'] as String? ?? '');
+    final thumbnailController =
+        TextEditingController(text: data?['thumbnailUrl'] as String? ?? '');
+    final latitudeController = TextEditingController(
+      text: data?['latitude']?.toString() ?? '',
+    );
+    final longitudeController = TextEditingController(
+      text: data?['longitude']?.toString() ?? '',
+    );
+    final openingHoursController =
+        TextEditingController(text: data?['openingHours'] as String? ?? '');
+    final closedDaysController =
+        TextEditingController(text: data?['closedDays'] as String? ?? '');
+    final instagramController =
+        TextEditingController(text: data?['instagramUrl'] as String? ?? '');
+    final blogController =
+        TextEditingController(text: data?['blogUrl'] as String? ?? '');
+    final kakaoController =
+        TextEditingController(text: data?['kakaoChannelUrl'] as String? ?? '');
+    final websiteController =
+        TextEditingController(text: data?['websiteUrl'] as String? ?? '');
+    final couponController =
+        TextEditingController(text: data?['couponImageUrl'] as String? ?? '');
     final tagsController = TextEditingController(
       text: (data?['tags'] as List?)
               ?.whereType<String>()
@@ -150,13 +173,79 @@ class _AdminBusinessesPageState extends State<AdminBusinessesPage> {
                   controller: summaryController,
                   maxLines: 2,
                 ),
+                ImageUploadField(
+                  label: '업체 카드 섬네일',
+                  controller: thumbnailController,
+                  helperText: '업체 리스트 카드에 표시됩니다.',
+                  storagePath: 'business_thumbnails',
+                  onSaved: docId == null
+                      ? null
+                      : (value) => _collection().doc(docId).set(
+                            {'thumbnailUrl': value},
+                            SetOptions(merge: true),
+                          ),
+                ),
+                ImageUploadField(
+                  label: '쿠폰 이미지',
+                  controller: couponController,
+                  helperText: '업체 상세 페이지에 표시됩니다.',
+                  storagePath: 'business_coupons',
+                  onSaved: docId == null
+                      ? null
+                      : (value) => _collection().doc(docId).set(
+                            {'couponImageUrl': value},
+                            SetOptions(merge: true),
+                          ),
+                ),
                 AdminTextField(
                   label: '태그(쉼표로 구분)',
                   controller: tagsController,
                   helperText: '예: 브런치, 테이크아웃, 24시',
                 ),
+                AdminTextField(
+                  label: '위도',
+                  controller: latitudeController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    signed: true,
+                    decimal: true,
+                  ),
+                ),
+                AdminTextField(
+                  label: '경도',
+                  controller: longitudeController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    signed: true,
+                    decimal: true,
+                  ),
+                ),
+                AdminTextField(
+                  label: '영업 시간',
+                  controller: openingHoursController,
+                  helperText: '예: 10:00 - 22:00',
+                ),
+                AdminTextField(
+                  label: '휴무일',
+                  controller: closedDaysController,
+                  helperText: '예: 매주 월요일',
+                ),
                 AdminTextField(label: '전화번호', controller: phoneController),
                 AdminTextField(label: '주소', controller: addressController),
+                AdminTextField(
+                  label: '인스타그램 URL',
+                  controller: instagramController,
+                ),
+                AdminTextField(
+                  label: '블로그 URL',
+                  controller: blogController,
+                ),
+                AdminTextField(
+                  label: '카카오 채널 URL',
+                  controller: kakaoController,
+                ),
+                AdminTextField(
+                  label: '웹사이트 URL',
+                  controller: websiteController,
+                ),
               ],
             ),
           ),
@@ -201,6 +290,66 @@ class _AdminBusinessesPageState extends State<AdminBusinessesPage> {
       payload['tags'] = tags;
     } else if (docId != null) {
       payload['tags'] = FieldValue.delete();
+    }
+    final thumbnailUrl = thumbnailController.text.trim();
+    if (thumbnailUrl.isNotEmpty) {
+      payload['thumbnailUrl'] = thumbnailUrl;
+    } else if (docId != null) {
+      payload['thumbnailUrl'] = FieldValue.delete();
+    }
+    final couponUrl = couponController.text.trim();
+    if (couponUrl.isNotEmpty) {
+      payload['couponImageUrl'] = couponUrl;
+    } else if (docId != null) {
+      payload['couponImageUrl'] = FieldValue.delete();
+    }
+    final latitude = double.tryParse(latitudeController.text.trim());
+    if (latitude != null) {
+      payload['latitude'] = latitude;
+    } else if (docId != null) {
+      payload['latitude'] = FieldValue.delete();
+    }
+    final longitude = double.tryParse(longitudeController.text.trim());
+    if (longitude != null) {
+      payload['longitude'] = longitude;
+    } else if (docId != null) {
+      payload['longitude'] = FieldValue.delete();
+    }
+    final openingHours = openingHoursController.text.trim();
+    if (openingHours.isNotEmpty) {
+      payload['openingHours'] = openingHours;
+    } else if (docId != null) {
+      payload['openingHours'] = FieldValue.delete();
+    }
+    final closedDays = closedDaysController.text.trim();
+    if (closedDays.isNotEmpty) {
+      payload['closedDays'] = closedDays;
+    } else if (docId != null) {
+      payload['closedDays'] = FieldValue.delete();
+    }
+    final instagramUrl = instagramController.text.trim();
+    if (instagramUrl.isNotEmpty) {
+      payload['instagramUrl'] = instagramUrl;
+    } else if (docId != null) {
+      payload['instagramUrl'] = FieldValue.delete();
+    }
+    final blogUrl = blogController.text.trim();
+    if (blogUrl.isNotEmpty) {
+      payload['blogUrl'] = blogUrl;
+    } else if (docId != null) {
+      payload['blogUrl'] = FieldValue.delete();
+    }
+    final kakaoUrl = kakaoController.text.trim();
+    if (kakaoUrl.isNotEmpty) {
+      payload['kakaoChannelUrl'] = kakaoUrl;
+    } else if (docId != null) {
+      payload['kakaoChannelUrl'] = FieldValue.delete();
+    }
+    final websiteUrl = websiteController.text.trim();
+    if (websiteUrl.isNotEmpty) {
+      payload['websiteUrl'] = websiteUrl;
+    } else if (docId != null) {
+      payload['websiteUrl'] = FieldValue.delete();
     }
 
     try {

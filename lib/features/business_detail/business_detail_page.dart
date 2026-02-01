@@ -1,11 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:my_ebook/core/utils.dart';
 import 'package:my_ebook/models/business.dart';
 import 'package:my_ebook/models/business_page.dart';
 import 'package:my_ebook/models/category.dart';
 import 'package:my_ebook/services/firestore_service.dart';
 import 'package:my_ebook/widgets/account_menu_button.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class BusinessDetailPage extends StatefulWidget {
   const BusinessDetailPage({
@@ -26,6 +30,7 @@ class _BusinessDetailPageState extends State<BusinessDetailPage> {
   int _pageIndex = 0;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  bool _didLogView = false;
 
   void _goToPage(int index) {
     _controller.animateToPage(
@@ -79,12 +84,125 @@ class _BusinessDetailPageState extends State<BusinessDetailPage> {
   @override
   void initState() {
     super.initState();
+    _logViewOnce();
     _searchController.addListener(() {
       final next = _searchController.text.trim();
       if (_searchQuery != next) {
         setState(() => _searchQuery = next);
       }
     });
+  }
+
+  Future<void> _logViewOnce() async {
+    if (_didLogView) {
+      return;
+    }
+    _didLogView = true;
+    await _incrementMetric('viewCount');
+  }
+
+  Future<void> _incrementMetric(String field) async {
+    final businessId = widget.business.id;
+    await FirebaseFirestore.instance
+        .collection('business_metrics')
+        .doc(businessId)
+        .set({field: FieldValue.increment(1)}, SetOptions(merge: true));
+  }
+
+  Future<void> _launchPhone(String phone) async {
+    final cleaned = phone.trim();
+    if (cleaned.isEmpty) {
+      return;
+    }
+    await _incrementMetric('phoneClickCount');
+    final uri = Uri.parse('tel:$cleaned');
+    await launchUrl(uri);
+  }
+
+  Future<void> _launchLink(String url) async {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) {
+      return;
+    }
+    final uri = Uri.parse(trimmed);
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  String _kakaoMapUrl(Business business) {
+    final lat = business.latitude;
+    final lng = business.longitude;
+    final name = Uri.encodeComponent(business.name);
+    if (lat != null && lng != null) {
+      return 'https://map.kakao.com/link/map/$name,$lat,$lng';
+    }
+    return 'https://map.kakao.com/link/search/$name';
+  }
+
+  String _naverMapUrl(Business business) {
+    final lat = business.latitude;
+    final lng = business.longitude;
+    final name = Uri.encodeComponent(business.name);
+    if (lat != null && lng != null) {
+      return 'https://map.naver.com/v5/search/$name?c=$lng,$lat,15,0,0,0,dh';
+    }
+    return 'https://map.naver.com/v5/search/$name';
+  }
+
+  Future<void> _toggleBookmark(Business business) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('로그인 후 이용할 수 있습니다.')),
+      );
+      return;
+    }
+    final ref = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('bookmarks')
+        .doc(business.id);
+    final snapshot = await ref.get();
+    if (snapshot.exists) {
+      await ref.delete();
+    } else {
+      await ref.set({
+        'businessId': business.id,
+        'categoryId': business.categoryId,
+        'name': business.name,
+        'summary': business.summary,
+        'phone': business.phone,
+        'address': business.address,
+        'thumbnailUrl': business.thumbnailUrl ?? '',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    }
+  }
+
+  Future<void> _toggleLike(Business business) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('로그인 후 이용할 수 있습니다.')),
+      );
+      return;
+    }
+    final ref = FirebaseFirestore.instance
+        .collection('businesses')
+        .doc(business.id)
+        .collection('likes')
+        .doc(user.uid);
+    final snapshot = await ref.get();
+    if (snapshot.exists) {
+      await ref.delete();
+    } else {
+      await ref.set({'createdAt': FieldValue.serverTimestamp()});
+    }
   }
 
   List<Business> _buildBusinesses() {
@@ -101,6 +219,16 @@ class _BusinessDetailPageState extends State<BusinessDetailPage> {
         order: number,
         pages: const [],
         tags: [category.name],
+        thumbnailUrl: null,
+        latitude: null,
+        longitude: null,
+        openingHours: '10:00 - 22:00',
+        closedDays: '매주 월요일',
+        instagramUrl: '',
+        blogUrl: '',
+        kakaoChannelUrl: '',
+        websiteUrl: '',
+        couponImageUrl: '',
       );
     });
   }
@@ -203,8 +331,17 @@ class _BusinessDetailPageState extends State<BusinessDetailPage> {
                       ),
                     ),
                   ),
-                  SliverFillRemaining(
-                    hasScrollBody: true,
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                      child: _BusinessEngagementRow(
+                        business: business,
+                        onBookmark: () => _toggleBookmark(business),
+                        onLike: () => _toggleLike(business),
+                      ),
+                    ),
+                  ),
+                  SliverToBoxAdapter(
                     child: StreamBuilder<List<BusinessPage>>(
                       stream: tryGetFirestoreService()?.watchBusinessPages(
                             business.id,
@@ -238,9 +375,13 @@ class _BusinessDetailPageState extends State<BusinessDetailPage> {
                             }
                           });
                         }
+                        final sliderHeight =
+                            MediaQuery.of(context).size.height * 0.55;
                         return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(
+                            SizedBox(
+                              height: sliderHeight,
                               child: Stack(
                                 children: [
                                   PageView.builder(
@@ -297,9 +438,52 @@ class _BusinessDetailPageState extends State<BusinessDetailPage> {
                             ),
                             Padding(
                               padding: const EdgeInsets.only(bottom: 8),
-                              child: Text(
-                                '${_pageIndex + 1} / ${pages.length}',
-                                style: Theme.of(context).textTheme.labelMedium,
+                              child: Center(
+                                child: Text(
+                                  '${_pageIndex + 1} / ${pages.length}',
+                                  style:
+                                      Theme.of(context).textTheme.labelMedium,
+                                ),
+                              ),
+                            ),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 16),
+                              child: _BusinessInfoSection(
+                                business: business,
+                                onPhoneTap: () => _launchPhone(business.phone),
+                              ),
+                            ),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 16),
+                              child: _BusinessMapSection(
+                                business: business,
+                                onOpenKakao: () =>
+                                    _launchLink(_kakaoMapUrl(business)),
+                                onOpenNaver: () =>
+                                    _launchLink(_naverMapUrl(business)),
+                              ),
+                            ),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 16),
+                              child: _BusinessLinksSection(
+                                business: business,
+                                onOpenLink: _launchLink,
+                              ),
+                            ),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 16),
+                              child: _BusinessCouponSection(
+                                business: business,
+                              ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                              child: _BusinessNewsSection(
+                                businessId: business.id,
                               ),
                             ),
                           ],
@@ -316,6 +500,7 @@ class _BusinessDetailPageState extends State<BusinessDetailPage> {
               name: business.name,
               phone: business.phone,
               address: business.address,
+              onPhoneTap: () => _launchPhone(business.phone),
             ),
     );
   }
@@ -395,11 +580,13 @@ class _BusinessFooter extends StatelessWidget {
     required this.name,
     required this.phone,
     required this.address,
+    required this.onPhoneTap,
   });
 
   final String name;
   final String phone;
   final String address;
+  final VoidCallback onPhoneTap;
 
   @override
   Widget build(BuildContext context) {
@@ -420,11 +607,389 @@ class _BusinessFooter extends StatelessWidget {
           children: [
             Text(name, style: theme.textTheme.bodyMedium),
             const SizedBox(height: 4),
-            Text('전화번호: $phone', style: theme.textTheme.bodySmall),
+            GestureDetector(
+              onTap: onPhoneTap,
+              child: Text(
+                '전화번호: $phone',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  decoration: TextDecoration.underline,
+                ),
+              ),
+            ),
             Text('주소: $address', style: theme.textTheme.bodySmall),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _BusinessEngagementRow extends StatelessWidget {
+  const _BusinessEngagementRow({
+    required this.business,
+    required this.onBookmark,
+    required this.onLike,
+  });
+
+  final Business business;
+  final VoidCallback onBookmark;
+  final VoidCallback onLike;
+
+  @override
+  Widget build(BuildContext context) {
+    final authStream = FirebaseAuth.instance.authStateChanges();
+    return StreamBuilder<User?>(
+      stream: authStream,
+      builder: (context, authSnapshot) {
+        final user = authSnapshot.data;
+        final bookmarkStream = user == null
+            ? const Stream<DocumentSnapshot<Map<String, dynamic>>>.empty()
+            : FirebaseFirestore.instance
+                .collection('users')
+                .doc(user.uid)
+                .collection('bookmarks')
+                .doc(business.id)
+                .snapshots();
+        final likeStream = FirebaseFirestore.instance
+            .collection('businesses')
+            .doc(business.id)
+            .collection('likes')
+            .snapshots();
+        return Row(
+          children: [
+            Expanded(
+              child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                stream: bookmarkStream,
+                builder: (context, snapshot) {
+                  final isBookmarked = snapshot.data?.exists == true;
+                  return OutlinedButton.icon(
+                    onPressed: onBookmark,
+                    icon: Icon(
+                      isBookmarked ? Icons.bookmark : Icons.bookmark_border,
+                    ),
+                    label: Text(isBookmarked ? '찜됨' : '찜하기'),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: likeStream,
+                builder: (context, snapshot) {
+                  final likeCount = snapshot.data?.docs.length ?? 0;
+                  return OutlinedButton.icon(
+                    onPressed: onLike,
+                    icon: const Icon(Icons.favorite_border),
+                    label: Text('좋아요 $likeCount'),
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _BusinessInfoSection extends StatelessWidget {
+  const _BusinessInfoSection({
+    required this.business,
+    required this.onPhoneTap,
+  });
+
+  final Business business;
+  final VoidCallback onPhoneTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final opening = business.openingHours?.trim() ?? '';
+    final closed = business.closedDays?.trim() ?? '';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('업체 정보', style: textTheme.titleSmall),
+        const SizedBox(height: 8),
+        Text(business.summary, style: textTheme.bodySmall),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            const Icon(Icons.phone, size: 18),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: onPhoneTap,
+              child: Text(
+                business.phone,
+                style: textTheme.bodySmall?.copyWith(
+                  decoration: TextDecoration.underline,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            const Icon(Icons.place_outlined, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                business.address,
+                style: textTheme.bodySmall,
+              ),
+            ),
+          ],
+        ),
+        if (opening.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              const Icon(Icons.schedule, size: 18),
+              const SizedBox(width: 8),
+              Text(opening, style: textTheme.bodySmall),
+            ],
+          ),
+        ],
+        if (closed.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              const Icon(Icons.event_busy, size: 18),
+              const SizedBox(width: 8),
+              Text(closed, style: textTheme.bodySmall),
+            ],
+          ),
+        ],
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+}
+
+class _BusinessMapSection extends StatelessWidget {
+  const _BusinessMapSection({
+    required this.business,
+    required this.onOpenKakao,
+    required this.onOpenNaver,
+  });
+
+  final Business business;
+  final VoidCallback onOpenKakao;
+  final VoidCallback onOpenNaver;
+
+  @override
+  Widget build(BuildContext context) {
+    final lat = business.latitude;
+    final lng = business.longitude;
+    if (lat == null || lng == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('지도', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 8),
+          Text(
+            '위치 정보가 없습니다.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 16),
+        ],
+      );
+    }
+    final point = LatLng(lat, lng);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('지도', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 180,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: FlutterMap(
+              options: MapOptions(
+                initialCenter: point,
+                initialZoom: 15,
+                interactionOptions:
+                    const InteractionOptions(flags: InteractiveFlag.all),
+              ),
+              children: [
+                TileLayer(
+                  urlTemplate:
+                      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  userAgentPackageName: 'my_ebook',
+                ),
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: point,
+                      width: 36,
+                      height: 36,
+                      child: const Icon(
+                        Icons.location_pin,
+                        size: 36,
+                        color: Colors.redAccent,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed: onOpenKakao,
+              icon: const Icon(Icons.map_outlined),
+              label: const Text('카카오 지도'),
+            ),
+            OutlinedButton.icon(
+              onPressed: onOpenNaver,
+              icon: const Icon(Icons.navigation_outlined),
+              label: const Text('네이버 지도'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+}
+
+class _BusinessLinksSection extends StatelessWidget {
+  const _BusinessLinksSection({
+    required this.business,
+    required this.onOpenLink,
+  });
+
+  final Business business;
+  final ValueChanged<String> onOpenLink;
+
+  @override
+  Widget build(BuildContext context) {
+    final links = <_LinkItem>[
+      _LinkItem(label: '인스타그램', url: business.instagramUrl, icon: Icons.tag),
+      _LinkItem(label: '블로그', url: business.blogUrl, icon: Icons.article),
+      _LinkItem(
+        label: '카카오 채널',
+        url: business.kakaoChannelUrl,
+        icon: Icons.chat_bubble_outline,
+      ),
+      _LinkItem(label: '웹사이트', url: business.websiteUrl, icon: Icons.public),
+    ].where((item) => (item.url ?? '').trim().isNotEmpty).toList();
+    if (links.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('연결 링크', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: links
+              .map(
+                (item) => OutlinedButton.icon(
+                  onPressed: () => onOpenLink(item.url ?? ''),
+                  icon: Icon(item.icon, size: 18),
+                  label: Text(item.label),
+                ),
+              )
+              .toList(),
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+}
+
+class _LinkItem {
+  const _LinkItem({required this.label, required this.url, required this.icon});
+
+  final String label;
+  final String? url;
+  final IconData icon;
+}
+
+class _BusinessCouponSection extends StatelessWidget {
+  const _BusinessCouponSection({required this.business});
+
+  final Business business;
+
+  @override
+  Widget build(BuildContext context) {
+    final url = business.couponImageUrl?.trim() ?? '';
+    if (url.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('쿠폰', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: AspectRatio(
+            aspectRatio: 16 / 9,
+            child: Image.network(
+              url,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+}
+
+class _BusinessNewsSection extends StatelessWidget {
+  const _BusinessNewsSection({required this.businessId});
+
+  final String businessId;
+
+  @override
+  Widget build(BuildContext context) {
+    final stream = FirebaseFirestore.instance
+        .collection('businesses')
+        .doc(businessId)
+        .collection('news')
+        .orderBy('createdAt', descending: true)
+        .limit(5)
+        .snapshots();
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: stream,
+      builder: (context, snapshot) {
+        final docs = snapshot.data?.docs ?? [];
+        if (docs.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('소식', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
+            for (final doc in docs)
+              Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  title: Text(doc.data()['title'] as String? ?? '소식'),
+                  subtitle: Text(
+                    doc.data()['body'] as String? ?? '',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }

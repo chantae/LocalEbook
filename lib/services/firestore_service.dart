@@ -101,6 +101,16 @@ class FirestoreService {
           order: orderValue(data['order'], 9999),
           pages: const [],
           tags: tags,
+          thumbnailUrl: data['thumbnailUrl'] as String?,
+          latitude: (data['latitude'] as num?)?.toDouble(),
+          longitude: (data['longitude'] as num?)?.toDouble(),
+          openingHours: data['openingHours'] as String?,
+          closedDays: data['closedDays'] as String?,
+          instagramUrl: data['instagramUrl'] as String?,
+          blogUrl: data['blogUrl'] as String?,
+          kakaoChannelUrl: data['kakaoChannelUrl'] as String?,
+          websiteUrl: data['websiteUrl'] as String?,
+          couponImageUrl: data['couponImageUrl'] as String?,
         );
       }).toList();
       items.sort((a, b) {
@@ -139,6 +149,16 @@ class FirestoreService {
           order: orderValue(data['order'], 9999),
           pages: const [],
           tags: tags,
+          thumbnailUrl: data['thumbnailUrl'] as String?,
+          latitude: (data['latitude'] as num?)?.toDouble(),
+          longitude: (data['longitude'] as num?)?.toDouble(),
+          openingHours: data['openingHours'] as String?,
+          closedDays: data['closedDays'] as String?,
+          instagramUrl: data['instagramUrl'] as String?,
+          blogUrl: data['blogUrl'] as String?,
+          kakaoChannelUrl: data['kakaoChannelUrl'] as String?,
+          websiteUrl: data['websiteUrl'] as String?,
+          couponImageUrl: data['couponImageUrl'] as String?,
         );
       }).toList();
       items.sort((a, b) {

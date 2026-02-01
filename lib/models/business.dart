@@ -11,6 +11,16 @@ class Business {
     required this.order,
     required this.pages,
     required this.tags,
+    this.thumbnailUrl,
+    this.latitude,
+    this.longitude,
+    this.openingHours,
+    this.closedDays,
+    this.instagramUrl,
+    this.blogUrl,
+    this.kakaoChannelUrl,
+    this.websiteUrl,
+    this.couponImageUrl,
   });
 
   final String id;
@@ -22,4 +32,14 @@ class Business {
   final int order;
   final List<BusinessPage> pages;
   final List<String> tags;
+  final String? thumbnailUrl;
+  final double? latitude;
+  final double? longitude;
+  final String? openingHours;
+  final String? closedDays;
+  final String? instagramUrl;
+  final String? blogUrl;
+  final String? kakaoChannelUrl;
+  final String? websiteUrl;
+  final String? couponImageUrl;
 }

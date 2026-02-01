@@ -28,6 +28,18 @@ class _BusinessOwnerPageState extends State<BusinessOwnerPage> {
   final _businessPhoneController = TextEditingController();
   final _businessAddressController = TextEditingController();
   final _businessTagsController = TextEditingController();
+  final _businessThumbnailController = TextEditingController();
+  final _businessCouponController = TextEditingController();
+  final _businessLatitudeController = TextEditingController();
+  final _businessLongitudeController = TextEditingController();
+  final _businessOpeningHoursController = TextEditingController();
+  final _businessClosedDaysController = TextEditingController();
+  final _businessInstagramController = TextEditingController();
+  final _businessBlogController = TextEditingController();
+  final _businessKakaoController = TextEditingController();
+  final _businessWebsiteController = TextEditingController();
+  final _newsTitleController = TextEditingController();
+  final _newsBodyController = TextEditingController();
   String? _businessCategoryId;
   bool _loadedBusiness = false;
 
@@ -43,6 +55,18 @@ class _BusinessOwnerPageState extends State<BusinessOwnerPage> {
     _businessPhoneController.dispose();
     _businessAddressController.dispose();
     _businessTagsController.dispose();
+    _businessThumbnailController.dispose();
+    _businessCouponController.dispose();
+    _businessLatitudeController.dispose();
+    _businessLongitudeController.dispose();
+    _businessOpeningHoursController.dispose();
+    _businessClosedDaysController.dispose();
+    _businessInstagramController.dispose();
+    _businessBlogController.dispose();
+    _businessKakaoController.dispose();
+    _businessWebsiteController.dispose();
+    _newsTitleController.dispose();
+    _newsBodyController.dispose();
     super.dispose();
   }
 
@@ -92,12 +116,50 @@ class _BusinessOwnerPageState extends State<BusinessOwnerPage> {
       'address': _businessAddressController.text.trim(),
       'categoryId': _businessCategoryId ?? '',
       'tags': parseTagsInput(_businessTagsController.text),
+      'thumbnailUrl': _businessThumbnailController.text.trim(),
+      'couponImageUrl': _businessCouponController.text.trim(),
+      'latitude': double.tryParse(_businessLatitudeController.text.trim()),
+      'longitude': double.tryParse(_businessLongitudeController.text.trim()),
+      'openingHours': _businessOpeningHoursController.text.trim(),
+      'closedDays': _businessClosedDaysController.text.trim(),
+      'instagramUrl': _businessInstagramController.text.trim(),
+      'blogUrl': _businessBlogController.text.trim(),
+      'kakaoChannelUrl': _businessKakaoController.text.trim(),
+      'websiteUrl': _businessWebsiteController.text.trim(),
     }, SetOptions(merge: true));
     if (!mounted) {
       return;
     }
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('업체 정보가 저장되었습니다.')),
+    );
+  }
+
+  Future<void> _postNews(String businessId) async {
+    final title = _newsTitleController.text.trim();
+    final body = _newsBodyController.text.trim();
+    if (title.isEmpty && body.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('소식 내용을 입력하세요.')),
+      );
+      return;
+    }
+    await FirebaseFirestore.instance
+        .collection('businesses')
+        .doc(businessId)
+        .collection('news')
+        .add({
+      'title': title.isEmpty ? '소식' : title,
+      'body': body,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+    _newsTitleController.clear();
+    _newsBodyController.clear();
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('소식이 등록되었습니다.')),
     );
   }
 
@@ -326,6 +388,26 @@ class _BusinessOwnerPageState extends State<BusinessOwnerPage> {
                 _businessTagsController.text =
                     (bizData['tags'] as List?)?.whereType<String>().join(', ') ??
                         (bizData['tags'] as String? ?? '');
+                _businessThumbnailController.text =
+                    bizData['thumbnailUrl'] as String? ?? '';
+                _businessCouponController.text =
+                    bizData['couponImageUrl'] as String? ?? '';
+                _businessLatitudeController.text =
+                    bizData['latitude']?.toString() ?? '';
+                _businessLongitudeController.text =
+                    bizData['longitude']?.toString() ?? '';
+                _businessOpeningHoursController.text =
+                    bizData['openingHours'] as String? ?? '';
+                _businessClosedDaysController.text =
+                    bizData['closedDays'] as String? ?? '';
+                _businessInstagramController.text =
+                    bizData['instagramUrl'] as String? ?? '';
+                _businessBlogController.text =
+                    bizData['blogUrl'] as String? ?? '';
+                _businessKakaoController.text =
+                    bizData['kakaoChannelUrl'] as String? ?? '';
+                _businessWebsiteController.text =
+                    bizData['websiteUrl'] as String? ?? '';
               }
 
               return ListView(
@@ -354,6 +436,26 @@ class _BusinessOwnerPageState extends State<BusinessOwnerPage> {
                     controller: _businessSummaryController,
                     maxLines: 2,
                   ),
+                  ImageUploadField(
+                    label: '업체 카드 섬네일',
+                    controller: _businessThumbnailController,
+                    helperText: '업체 리스트 카드에 표시됩니다.',
+                    storagePath: 'business_thumbnails',
+                    onSaved: (value) => FirebaseFirestore.instance
+                        .collection('businesses')
+                        .doc(businessId)
+                        .set({'thumbnailUrl': value}, SetOptions(merge: true)),
+                  ),
+                  ImageUploadField(
+                    label: '쿠폰 이미지',
+                    controller: _businessCouponController,
+                    helperText: '업체 상세 페이지에 표시됩니다.',
+                    storagePath: 'business_coupons',
+                    onSaved: (value) => FirebaseFirestore.instance
+                        .collection('businesses')
+                        .doc(businessId)
+                        .set({'couponImageUrl': value}, SetOptions(merge: true)),
+                  ),
                   AdminTextField(
                     label: '전화번호',
                     controller: _businessPhoneController,
@@ -367,11 +469,55 @@ class _BusinessOwnerPageState extends State<BusinessOwnerPage> {
                     controller: _businessTagsController,
                     helperText: '예: 예약, 주차, 포장',
                   ),
+                  AdminTextField(
+                    label: '위도',
+                    controller: _businessLatitudeController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      signed: true,
+                      decimal: true,
+                    ),
+                  ),
+                  AdminTextField(
+                    label: '경도',
+                    controller: _businessLongitudeController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      signed: true,
+                      decimal: true,
+                    ),
+                  ),
+                  AdminTextField(
+                    label: '영업 시간',
+                    controller: _businessOpeningHoursController,
+                    helperText: '예: 10:00 - 22:00',
+                  ),
+                  AdminTextField(
+                    label: '휴무일',
+                    controller: _businessClosedDaysController,
+                    helperText: '예: 매주 월요일',
+                  ),
+                  AdminTextField(
+                    label: '인스타그램 URL',
+                    controller: _businessInstagramController,
+                  ),
+                  AdminTextField(
+                    label: '블로그 URL',
+                    controller: _businessBlogController,
+                  ),
+                  AdminTextField(
+                    label: '카카오 채널 URL',
+                    controller: _businessKakaoController,
+                  ),
+                  AdminTextField(
+                    label: '웹사이트 URL',
+                    controller: _businessWebsiteController,
+                  ),
                   const SizedBox(height: 8),
                   ElevatedButton(
                     onPressed: () => _saveBusinessInfo(businessId),
                     child: const Text('업체 정보 저장'),
                   ),
+                  const SizedBox(height: 16),
+                  _BusinessMetricsSection(businessId: businessId),
                   const SizedBox(height: 24),
                   const Text(
                     '업체 페이지',
@@ -440,11 +586,123 @@ class _BusinessOwnerPageState extends State<BusinessOwnerPage> {
                       );
                     },
                   ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    '소식 등록',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                  ),
+                  const SizedBox(height: 12),
+                  AdminTextField(
+                    label: '제목',
+                    controller: _newsTitleController,
+                  ),
+                  AdminTextField(
+                    label: '내용',
+                    controller: _newsBodyController,
+                    maxLines: 3,
+                  ),
+                  const SizedBox(height: 8),
+                  ElevatedButton(
+                    onPressed: () => _postNews(businessId),
+                    child: const Text('소식 등록'),
+                  ),
                 ],
               );
             },
           );
         },
+      ),
+    );
+  }
+}
+
+class _BusinessMetricsSection extends StatelessWidget {
+  const _BusinessMetricsSection({required this.businessId});
+
+  final String businessId;
+
+  @override
+  Widget build(BuildContext context) {
+    final stream = FirebaseFirestore.instance
+        .collection('business_metrics')
+        .doc(businessId)
+        .snapshots();
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: stream,
+      builder: (context, snapshot) {
+        final data = snapshot.data?.data() ?? {};
+        final viewCount = (data['viewCount'] as num?)?.toInt() ?? 0;
+        final phoneCount = (data['phoneClickCount'] as num?)?.toInt() ?? 0;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '간단 통계',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _MetricCard(
+                    label: '조회수',
+                    value: viewCount,
+                    icon: Icons.visibility_outlined,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _MetricCard(
+                    label: '전화 클릭',
+                    value: phoneCount,
+                    icon: Icons.call,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _MetricCard extends StatelessWidget {
+  const _MetricCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  final String label;
+  final int value;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Icon(icon, color: theme.colorScheme.primary),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: theme.textTheme.bodySmall),
+                Text(
+                  value.toString(),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

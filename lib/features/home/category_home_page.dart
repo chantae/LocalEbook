@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:my_ebook/app/app.dart';
 import 'package:my_ebook/core/debug_log.dart';
 import 'package:my_ebook/core/utils.dart';
@@ -25,6 +26,9 @@ class _CategoryHomePageState extends State<CategoryHomePage> with RouteAware {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   static bool _seededOnce = false;
+  bool _sortByDistance = false;
+  bool _isLocating = false;
+  Position? _currentPosition;
 
   @override
   void initState() {
@@ -60,6 +64,56 @@ class _CategoryHomePageState extends State<CategoryHomePage> with RouteAware {
     routeObserver.unsubscribe(this);
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _toggleSortByDistance() async {
+    final next = !_sortByDistance;
+    if (!next) {
+      setState(() => _sortByDistance = false);
+      return;
+    }
+    if (_isLocating) {
+      return;
+    }
+    setState(() => _isLocating = true);
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('위치 서비스가 꺼져 있습니다.')),
+          );
+        }
+        return;
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('위치 권한이 필요합니다.')),
+          );
+        }
+        return;
+      }
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _currentPosition = position;
+        _sortByDistance = true;
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isLocating = false);
+      }
+    }
   }
 
   List<Category> _buildCategories() {
@@ -188,6 +242,16 @@ class _CategoryHomePageState extends State<CategoryHomePage> with RouteAware {
           'address': business.address,
           'order': business.order,
           'tags': business.tags,
+          'thumbnailUrl': business.thumbnailUrl ?? '',
+          'latitude': business.latitude,
+          'longitude': business.longitude,
+          'openingHours': business.openingHours ?? '',
+          'closedDays': business.closedDays ?? '',
+          'instagramUrl': business.instagramUrl ?? '',
+          'blogUrl': business.blogUrl ?? '',
+          'kakaoChannelUrl': business.kakaoChannelUrl ?? '',
+          'websiteUrl': business.websiteUrl ?? '',
+          'couponImageUrl': business.couponImageUrl ?? '',
         },
       );
       for (final page in business.pages) {
@@ -247,6 +311,16 @@ class _CategoryHomePageState extends State<CategoryHomePage> with RouteAware {
             ),
           ],
           tags: [category.name],
+          thumbnailUrl: null,
+          latitude: null,
+          longitude: null,
+          openingHours: '10:00 - 22:00',
+          closedDays: '매주 월요일',
+          instagramUrl: '',
+          blogUrl: '',
+          kakaoChannelUrl: '',
+          websiteUrl: '',
+          couponImageUrl: '',
         );
       });
     }).toList();
@@ -325,7 +399,16 @@ class _CategoryHomePageState extends State<CategoryHomePage> with RouteAware {
             ),
           ),
         ),
-        actions: const [AccountMenuButton()],
+        actions: [
+          IconButton(
+            tooltip: '내 주변 정렬',
+            icon: Icon(
+              _sortByDistance ? Icons.my_location : Icons.location_on_outlined,
+            ),
+            onPressed: _toggleSortByDistance,
+          ),
+          const AccountMenuButton(),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: _handleRefresh,
@@ -410,6 +493,8 @@ class _CategoryHomePageState extends State<CategoryHomePage> with RouteAware {
                                 query: _searchQuery,
                                 localBusinesses: localBusinesses,
                                 categoryMap: categoryMap,
+                                sortByDistance: _sortByDistance,
+                                position: _currentPosition,
                               ),
                             ),
                           if (_searchQuery.isNotEmpty)
@@ -536,11 +621,15 @@ class _SearchResults extends StatelessWidget {
     required this.query,
     required this.localBusinesses,
     required this.categoryMap,
+    required this.sortByDistance,
+    required this.position,
   });
 
   final String query;
   final List<Business> localBusinesses;
   final Map<String, Category> categoryMap;
+  final bool sortByDistance;
+  final Position? position;
 
   @override
   Widget build(BuildContext context) {
@@ -573,6 +662,31 @@ class _SearchResults extends StatelessWidget {
           ].join(' ').toLowerCase();
           return haystack.contains(lowerQuery);
         }).toList();
+        if (sortByDistance && position != null) {
+          filtered.sort((a, b) {
+            final aLat = a.latitude;
+            final aLng = a.longitude;
+            final bLat = b.latitude;
+            final bLng = b.longitude;
+            final aDistance = (aLat == null || aLng == null)
+                ? double.infinity
+                : Geolocator.distanceBetween(
+                    position!.latitude,
+                    position!.longitude,
+                    aLat,
+                    aLng,
+                  );
+            final bDistance = (bLat == null || bLng == null)
+                ? double.infinity
+                : Geolocator.distanceBetween(
+                    position!.latitude,
+                    position!.longitude,
+                    bLat,
+                    bLng,
+                  );
+            return aDistance.compareTo(bDistance);
+          });
+        }
         if (filtered.isEmpty) {
           return Padding(
             padding: const EdgeInsets.only(bottom: 12),

@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:my_ebook/core/debug_log.dart';
 import 'package:my_ebook/core/utils.dart';
 import 'package:my_ebook/features/business_detail/business_detail_page.dart';
@@ -22,6 +23,9 @@ class _CategoryListPageState extends State<CategoryListPage> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   bool _useTileView = false;
+  bool _sortByDistance = false;
+  bool _isLocating = false;
+  Position? _currentPosition;
 
   @override
   void initState() {
@@ -38,6 +42,88 @@ class _CategoryListPageState extends State<CategoryListPage> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _toggleSortByDistance() async {
+    final next = !_sortByDistance;
+    if (!next) {
+      setState(() => _sortByDistance = false);
+      return;
+    }
+    if (_isLocating) {
+      return;
+    }
+    setState(() => _isLocating = true);
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('위치 서비스가 꺼져 있습니다.')),
+          );
+        }
+        return;
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('위치 권한이 필요합니다.')),
+          );
+        }
+        return;
+      }
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _currentPosition = position;
+        _sortByDistance = true;
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isLocating = false);
+      }
+    }
+  }
+
+  List<Business> _applyDistanceSort(List<Business> items) {
+    if (!_sortByDistance || _currentPosition == null) {
+      return items;
+    }
+    final position = _currentPosition!;
+    final sorted = [...items];
+    sorted.sort((a, b) {
+      final aLat = a.latitude;
+      final aLng = a.longitude;
+      final bLat = b.latitude;
+      final bLng = b.longitude;
+      final aDistance = (aLat == null || aLng == null)
+          ? double.infinity
+          : Geolocator.distanceBetween(
+              position.latitude,
+              position.longitude,
+              aLat,
+              aLng,
+            );
+      final bDistance = (bLat == null || bLng == null)
+          ? double.infinity
+          : Geolocator.distanceBetween(
+              position.latitude,
+              position.longitude,
+              bLat,
+              bLng,
+            );
+      return aDistance.compareTo(bDistance);
+    });
+    return sorted;
   }
 
   Future<void> _handleRefresh() async {
@@ -84,6 +170,16 @@ class _CategoryListPageState extends State<CategoryListPage> {
           ),
         ],
         tags: [category.name],
+        thumbnailUrl: null,
+        latitude: null,
+        longitude: null,
+        openingHours: '10:00 - 22:00',
+        closedDays: '매주 월요일',
+        instagramUrl: '',
+        blogUrl: '',
+        kakaoChannelUrl: '',
+        websiteUrl: '',
+        couponImageUrl: '',
       );
     });
   }
@@ -149,6 +245,13 @@ class _CategoryListPageState extends State<CategoryListPage> {
         centerTitle: true,
         actions: [
           IconButton(
+            tooltip: '내 주변 정렬',
+            icon: Icon(
+              _sortByDistance ? Icons.my_location : Icons.location_on_outlined,
+            ),
+            onPressed: _toggleSortByDistance,
+          ),
+          IconButton(
             tooltip: _useTileView ? '리스트 보기' : '타일 보기',
             icon: Icon(_useTileView ? Icons.view_list : Icons.grid_view_rounded),
             onPressed: () => setState(() => _useTileView = !_useTileView),
@@ -163,6 +266,8 @@ class _CategoryListPageState extends State<CategoryListPage> {
                 query: _searchQuery,
                 category: category,
                 localBusinesses: localBusinesses,
+                sortByDistance: _sortByDistance,
+                position: _currentPosition,
               )
             : StreamBuilder<List<Business>>(
                 stream: tryGetFirestoreService()?.watchBusinesses(
@@ -192,6 +297,7 @@ class _CategoryListPageState extends State<CategoryListPage> {
                   final businesses = snapshot.data?.isNotEmpty == true
                       ? snapshot.data!
                       : localBusinesses;
+                  final sortedBusinesses = _applyDistanceSort(businesses);
                   return LayoutBuilder(
                     builder: (context, constraints) {
                       if (_useTileView) {
@@ -201,7 +307,7 @@ class _CategoryListPageState extends State<CategoryListPage> {
                         return GridView.builder(
                           physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.all(16),
-                          itemCount: businesses.length,
+                          itemCount: sortedBusinesses.length,
                           gridDelegate:
                               SliverGridDelegateWithFixedCrossAxisCount(
                             crossAxisCount: crossAxisCount,
@@ -210,7 +316,7 @@ class _CategoryListPageState extends State<CategoryListPage> {
                             childAspectRatio: 0.92,
                           ),
                           itemBuilder: (context, index) {
-                            final business = businesses[index];
+                            final business = sortedBusinesses[index];
                             return _BusinessCardTypeTile(
                               business: business,
                               color: category.color,
@@ -231,11 +337,11 @@ class _CategoryListPageState extends State<CategoryListPage> {
                       return ListView.separated(
                         physics: const AlwaysScrollableScrollPhysics(),
                         padding: const EdgeInsets.all(16),
-                        itemCount: businesses.length,
+                        itemCount: sortedBusinesses.length,
                         separatorBuilder: (_, __) =>
                             const SizedBox(height: 12),
                         itemBuilder: (context, index) {
-                          final business = businesses[index];
+                          final business = sortedBusinesses[index];
                           return _BusinessCardTypeList(
                             business: business,
                             color: category.color,
@@ -266,11 +372,15 @@ class _CategorySearchResults extends StatelessWidget {
     required this.query,
     required this.category,
     required this.localBusinesses,
+    required this.sortByDistance,
+    required this.position,
   });
 
   final String query;
   final Category category;
   final List<Business> localBusinesses;
+  final bool sortByDistance;
+  final Position? position;
 
   @override
   Widget build(BuildContext context) {
@@ -315,6 +425,31 @@ class _CategorySearchResults extends StatelessWidget {
               ].join(' ').toLowerCase();
               return haystack.contains(lowerQuery);
             }).toList();
+            if (sortByDistance && position != null) {
+              filtered.sort((a, b) {
+                final aLat = a.latitude;
+                final aLng = a.longitude;
+                final bLat = b.latitude;
+                final bLng = b.longitude;
+                final aDistance = (aLat == null || aLng == null)
+                    ? double.infinity
+                    : Geolocator.distanceBetween(
+                        position!.latitude,
+                        position!.longitude,
+                        aLat,
+                        aLng,
+                      );
+                final bDistance = (bLat == null || bLng == null)
+                    ? double.infinity
+                    : Geolocator.distanceBetween(
+                        position!.latitude,
+                        position!.longitude,
+                        bLat,
+                        bLng,
+                      );
+                return aDistance.compareTo(bDistance);
+              });
+            }
             if (filtered.isEmpty) {
               return Padding(
                 padding: const EdgeInsets.all(16),
@@ -416,12 +551,10 @@ class _BusinessCardTypeList extends StatelessWidget {
                         Text(
                           business.summary,
                           style: Theme.of(context).textTheme.bodySmall,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 6),
-                        Text(
-                          business.address,
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
                         Text(
                           business.phone,
                           style: Theme.of(context).textTheme.bodySmall,
@@ -430,21 +563,11 @@ class _BusinessCardTypeList extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  Container(
+                  _ThumbnailBox(
                     width: imageWidth,
                     height: imageWidth * 0.75,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          color.withOpacity(0.85),
-                          color.withOpacity(0.55),
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.image_outlined, color: Colors.white),
+                    color: color,
+                    imageUrl: business.thumbnailUrl,
                   ),
                   const SizedBox(width: 8),
                   const Icon(Icons.chevron_right),
@@ -482,21 +605,9 @@ class _BusinessCardTypeTile extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        color.withOpacity(0.85),
-                        color.withOpacity(0.55),
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child:
-                      const Icon(Icons.image_outlined, color: Colors.white),
+                child: _ThumbnailBox(
+                  color: color,
+                  imageUrl: business.thumbnailUrl,
                 ),
               ),
               const SizedBox(height: 10),
@@ -512,20 +623,69 @@ class _BusinessCardTypeTile extends StatelessWidget {
               Text(
                 business.summary,
                 style: Theme.of(context).textTheme.bodySmall,
-                maxLines: 1,
+                maxLines: 3,
                 overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 4),
-              Text(
-                business.address,
-                style: Theme.of(context).textTheme.bodySmall,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ThumbnailBox extends StatelessWidget {
+  const _ThumbnailBox({
+    required this.color,
+    required this.imageUrl,
+    this.width,
+    this.height,
+  });
+
+  final Color color;
+  final String? imageUrl;
+  final double? width;
+  final double? height;
+
+  @override
+  Widget build(BuildContext context) {
+    final url = imageUrl?.trim() ?? '';
+    final borderRadius = BorderRadius.circular(12);
+    final content = url.isNotEmpty
+        ? ClipRRect(
+            borderRadius: borderRadius,
+            child: Image.network(
+              url,
+              width: width,
+              height: height,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => _fallbackBox(borderRadius),
+            ),
+          )
+        : _fallbackBox(borderRadius);
+    if (width == null && height == null) {
+      return content;
+    }
+    return SizedBox(width: width, height: height, child: content);
+  }
+
+  Widget _fallbackBox(BorderRadius borderRadius) {
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            color.withOpacity(0.85),
+            color.withOpacity(0.55),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: borderRadius,
+      ),
+      child: const Icon(Icons.image_outlined, color: Colors.white),
     );
   }
 }

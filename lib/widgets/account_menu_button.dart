@@ -3,11 +3,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:my_ebook/features/admin/admin_home_page.dart';
 import 'package:my_ebook/features/auth/auth_page.dart';
+import 'package:my_ebook/features/bookmarks/bookmarks_page.dart';
 import 'package:my_ebook/features/business_owner/business_owner_page.dart';
 import 'package:my_ebook/models/user_role.dart';
 import 'package:my_ebook/services/auth_service.dart';
 
 enum _AccountAction {
+  bookmarks,
   businessPortal,
   adminPanel,
   logout,
@@ -48,6 +50,13 @@ class AccountMenuButton extends StatelessWidget {
               icon: const Icon(Icons.account_circle),
               onSelected: (action) async {
                 switch (action) {
+                  case _AccountAction.bookmarks:
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const BookmarksPage(),
+                      ),
+                    );
+                    break;
                   case _AccountAction.businessPortal:
                     Navigator.of(context).push(
                       MaterialPageRoute(
@@ -72,6 +81,10 @@ class AccountMenuButton extends StatelessWidget {
                   PopupMenuItem<_AccountAction>(
                     enabled: false,
                     child: Text('${user.email ?? user.uid} ($roleLabel)'),
+                  ),
+                  const PopupMenuItem<_AccountAction>(
+                    value: _AccountAction.bookmarks,
+                    child: Text('찜한 업체'),
                   ),
                   if (role == UserRole.business)
                     const PopupMenuItem<_AccountAction>(
