@@ -49,6 +49,9 @@ class _AuthPageState extends State<AuthPage>
       if (!mounted) {
         return;
       }
+      if (error.code == 'naver-redirect') {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(error.message ?? '인증에 실패했습니다.')),
       );

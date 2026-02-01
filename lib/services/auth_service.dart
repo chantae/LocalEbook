@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_naver_login/flutter_naver_login.dart';
 import 'package:my_ebook/models/user_role.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class AuthService {
   AuthService._();
@@ -12,6 +13,8 @@ class AuthService {
   static const _adminId = 'admin';
   static const _adminPassword = '0000';
   static const _adminAuthPassword = '000000';
+  static const _naverWebClientId = 'YOUR_NAVER_CLIENT_ID';
+  static const _naverWebRedirectPath = '/auth/naver';
 
   static FirebaseAuth get _auth => FirebaseAuth.instance;
   static FirebaseFirestore get _firestore => FirebaseFirestore.instance;
@@ -22,6 +25,34 @@ class AuthService {
   }
 
   static Stream<User?> authStateChanges() => _auth.authStateChanges();
+
+  static String _naverWebRedirectUri() {
+    return '${Uri.base.origin}$_naverWebRedirectPath';
+  }
+
+  static Future<UserCredential> _exchangeNaverCodeForToken({
+    required String code,
+    required String state,
+    required String redirectUri,
+  }) async {
+    final callable =
+        FirebaseFunctions.instance.httpsCallable('exchangeNaverCode');
+    final response = await callable.call(<String, dynamic>{
+      'code': code,
+      'state': state,
+      'redirectUri': redirectUri,
+    });
+    final firebaseToken = response.data is Map
+        ? response.data['firebaseToken'] as String?
+        : response.data as String?;
+    if (firebaseToken == null || firebaseToken.isEmpty) {
+      throw FirebaseAuthException(
+        code: 'naver-custom-token-failed',
+        message: 'Firebase 토큰 발급에 실패했습니다.',
+      );
+    }
+    return _auth.signInWithCustomToken(firebaseToken);
+  }
 
   static Stream<DocumentSnapshot<Map<String, dynamic>>> userDocStream(
     String uid,
@@ -138,13 +169,34 @@ class AuthService {
 
   static Future<UserCredential> signInWithNaver() async {
     if (kIsWeb) {
+      final query = Uri.base.queryParameters;
+      final code = query['code'];
+      final state = query['state'] ?? '';
+      if (code != null && code.isNotEmpty) {
+        return _exchangeNaverCodeForToken(
+          code: code,
+          state: state,
+          redirectUri: _naverWebRedirectUri(),
+        );
+      }
+      final redirectUri = _naverWebRedirectUri();
+      final stateValue = DateTime.now().millisecondsSinceEpoch.toString();
+      final authUri = Uri.https('nid.naver.com', '/oauth2.0/authorize', {
+        'response_type': 'code',
+        'client_id': _naverWebClientId,
+        'state': stateValue,
+        'redirect_uri': redirectUri,
+      });
+      await launchUrl(authUri, mode: LaunchMode.platformDefault);
       throw FirebaseAuthException(
-        code: 'naver-web-unsupported',
-        message: '네이버는 웹에서 직접 로그인을 지원하지 않습니다.',
+        code: 'naver-redirect',
+        message: '네이버 로그인 페이지로 이동합니다.',
       );
     }
     final result = await FlutterNaverLogin.logIn();
-    if (result.status.name != 'loggedIn') {
+    final status = result.status;
+    final statusName = status is Enum ? status.name : status?.toString();
+    if (statusName != 'loggedIn') {
       throw FirebaseAuthException(
         code: 'naver-login-failed',
         message: '네이버 로그인에 실패했습니다.',
